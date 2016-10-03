@@ -1,0 +1,192 @@
+#! /usr/bin/perl
+################
+# svctree
+#
+# SYNTAX  : # svctree [report_file] fmri|pattern
+#
+# PURPOSE : Generate a dependency tree for the given
+#           fmri or pattern.
+#
+#
+# Copyright 2007 Peter A. van Gemert Bergman
+#
+# CHANGE LOG
+# 29-07-2007 1.0 First release of svctree
+
+
+use warnings;
+use strict;
+
+
+
+##########
+# Get prog arguments and
+# process them
+#
+my ($startsvc,$outputfile) = @ARGV;
+&error(1,1) if (! defined $startsvc or $startsvc eq "" );
+
+$outputfile = "/var/tmp/svctree.report.$$"if ( ! defined $outputfile );
+open REPORT , ">$outputfile" or error(3,3,$outputfile);
+
+my $command = $0;
+$command =~ s|^.*/||;
+
+
+
+##########
+# Get offical FMRI of
+# given service name
+#
+my @svc = `svcs $startsvc 2>/dev/null`;
+&error(2,2,$ARGV[0]) if $? != 0;
+
+shift @svc;   # Remove header line
+chomp @svc;   # Remove
+
+my $svc = $svc[0];
+$svc =~ s/^.*?svc:/svc:/; # Remove beginning of line, only keep FMRI
+my $length = 50 - length( $svc );
+$length = 5 if $length < 5;
+my $separator = "=" x $length;
+
+
+
+##########
+# Inform user
+#
+print STDERR "Please be patient. No, I really mean : be patient. ";
+print STDERR "$command will take several minutes to complete the report. ";
+print STDERR "Report : $outputfile ";
+
+
+##########
+# Get dependencies of given service
+#
+my $count = 0;
+my @up;
+@up = &up( $svc , $count , @up );
+
+
+##########
+# Get dependents of given service
+#
+$count = 0;
+my @down;
+@down = &down( $svc , $count , @down );
+
+
+##########
+# Create report
+#
+print REPORT "R E P O R T ";
+print REPORT "=" x 60;
+print REPORT " ";
+
+# Add dependencies to report
+foreach ( reverse @up ) {
+        print REPORT "$_ ";
+}
+
+print REPORT "$svc   $separator ";
+
+# Add dependents to report
+foreach ( @down ) {
+        print REPORT "$_ ";
+}
+
+
+
+#############################
+########## S U B S ##########
+#############################
+
+sub error {
+        my ( $msgid , $rc , $extrastr ) = @_;
+
+        my $command = $0;
+        $command =~ s|^.*/||; # Remove path
+
+        $extrastr = " " if ( ! defined $extrastr );
+
+        my @message;
+        $message[1] = "$command: Usage: $command [ FMRI | pattern ] ";
+
+        $message[2] = "$command: Pattern '$extrastr' doesn't match any instances ";
+
+        $message[3] = "$command: Outputfile '$extrastr' does not appear to be writable ";
+
+        print STDERR $message[$msgid];
+        exit $rc;
+}
+
+sub up {
+        # Purpose : Get upward service dependencies (svcs -d)
+        # Usage   : @output = &up( $service,$count,@output );
+        # N.B.    : This is a recursive function
+        
+        my ( $service,$count,$ref) = @_;
+        my @output = @{$ref};
+
+        $count++;
+
+        ##########
+        # Get dependencies (scvs -d) of currect $service
+        #
+        my @svc = `svcs -d $service 2>/dev/null`;
+        shift @svc;  # Remove header
+        chomp @svc;  # Remove
+
+        ##########
+        # Loop trhough found dependencies and get their
+        # dependencies as well.
+        #
+        foreach ( @svc ) {
+                s/^.*?svc:/svc:/;    # Remove begin of line, we only keep FMRI
+
+                my $indent = "   " x $count; # Define the indentation of current line
+
+                my $svc = "$count${indent}- $_";   # Output string
+                push @output , $svc;         # Store output string for latter use
+                
+                @output = &up( $_ , $count , @output ); # Call &up for current service
+        }
+        return( @output );
+}
+
+
+sub down {
+        # Purpose : Get downward service dependencies (svcs -D)
+        # Usage   : @output = &down( $service,$count,@output );
+        # N.B.    : This is a recursive function
+        
+        my ( $service,$count,$ref) = @_;
+        my @output = @{$ref};
+
+        $count++;
+
+        ##########
+        # Get dependencies (scvs -d) of currect $service
+        #
+        my @svc = `svcs -D $service 2>/dev/null`;
+        shift @svc;  # Remove header
+        chomp @svc;  # Remove
+
+        ##########
+        # Loop trhough found dependencies and get their
+        # dependencies as well.
+        #
+        foreach ( @svc ) {
+                s/^.*?svc:/svc:/;    # Remove begin of line, we only keep FMRI
+
+                my $indent = "   " x $count; # Define the indentation of current line
+
+                my $svc = "$count${indent}- $_";   # Output string
+                push @output , $svc;         # Store output string for latter use
+
+                @output = &down( $_ , $count , @output );
+        }
+        return( @output );
+}
+
+# eos
